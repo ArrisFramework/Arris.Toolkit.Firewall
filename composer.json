@@ -1,0 +1,27 @@
+{
+    "name": "karelwintersky/arris.toolkit.firewall",
+    "description": "Library providing IP filtering features",
+    "type": "library",
+    "keywords": ["firewall","IP","filtering"],
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Karel Wintersky",
+            "email": "wombat@fontanka.ru"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "Arris\\Toolkit\\": "src/"
+        }
+    },
+    "require": {
+        "php": "8.*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^8"
+    },
+    "scripts": {
+        "test": "phpunit"
+    }
+}

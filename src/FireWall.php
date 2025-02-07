@@ -68,6 +68,11 @@ class FireWall
         return $this;
     }
 
+    /*public function addRange($white = null, $black = null):FireWall
+    {
+        return $this;
+    }*/
+
     /**
      * Дополняет белый список
      *
@@ -138,32 +143,29 @@ class FireWall
             }
         }
 
-        $valid = $this->isValidIp($ip, $this->white_list, $this->black_list);
+        $in_black = true;
+        $in_white = false;
 
-        $this->allowed = $valid;
-        $this->forbidden = !$valid;
+        foreach ($this->white_list as $block) {
+            if ($this->isInRange($ip, $block)) {
+                $in_white = true; // IP находится в белом списке
+            }
+        }
+
+        foreach ($this->black_list as $block) {
+            if ($this->isInRange($ip, $block)) {
+                $in_black = false; // IP находится в черном списке
+            }
+        }
+
+
+        $this->allowed = !$in_black || $in_white;
+        $this->forbidden = $this->allowed;
 
         /*$this->allowed = $this->isInList($ip, $this->white_list);
         $this->forbidden = $this->isInList($ip, $this->black_list);*/
 
         return $this;
-    }
-
-    private function isValidIp($ip, $whitelist, $blacklist):bool
-    {
-        foreach ($blacklist as $block) {
-            if ($this->isInRange($ip, $block)) {
-                return false; // IP находится в черном списке
-            }
-        }
-
-        foreach ($whitelist as $block) {
-            if ($this->isInRange($ip, $block)) {
-                return true; // IP находится в белом списке
-            }
-        }
-
-        return false; // IP не найден ни в белом, ни в черном списке
     }
 
     /**
