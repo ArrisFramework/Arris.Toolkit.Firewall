@@ -2,137 +2,46 @@
 
 namespace Arris\Toolkit;
 
-/**
- * Позволяет проверить, находится ли IP-адрес в диапазоне белого списка или черного
- *
- * Диапазоны передаются:
- * - "192.168.1.0/24" (CIDR)
- * - "192.168.1.1-192.168.1.255" (range)
- * - "192.168.1.1" (значение)
- *
- * Пример:
- * var_dump(
- *   (new Firewall())
- *        ->setWhiteList('127.0.0.1')
- *        ->validate()
- *        ->isAllowed()
- * );
- *
- */
 class FireWall
 {
     private array $white_list;
     private array $black_list;
 
+    private array $sorted_ranges;
+
     public bool $allowed = false;
     public bool $forbidden = true;
     public bool $default_state = false;
 
-    /**
-     * @var callable
-     */
-    private $callback;
-
-    public function __construct()
+    public function __construct($defaultState = false)
     {
         $this->white_list = [];
         $this->black_list = [];
     }
 
-    /**
-     * Reset firewall state to default settings
-     *
-     * @return FireWall
-     */
     public function reset():FireWall
-    {
-        $this->white_list = [];
-        $this->black_list = [];
-        $this->callback = null;
-        $this->allowed = false;
-        $this->forbidden = true;
-        $this->default_state = false;
-        return $this;
-    }
+    {}
 
-    /**
-     * Устанавливает состояние по-умолчанию (FORBIDDEN)
-     * @param bool $allowed
-     * @return $this
-     */
-    public function setDefaultState(bool $allowed = false):FireWall
+    public function setDefaultState(bool $allowed = false)
     {
-        $this->allowed = $allowed;
-        $this->forbidden = !$allowed;
-        $this->default_state = $allowed;
-        return $this;
-    }
-
-    /*public function addRange($white = null, $black = null):FireWall
-    {
-        return $this;
-    }*/
-
-    /**
-     * Дополняет белый список
-     *
-     * @param $list - массив строк или строка
-     * @return $this
-     */
-    public function addWhiteList($list):FireWall
-    {
-        if (is_array($list)) {
-            $this->white_list = array_merge($this->white_list, $list);
+        if ($allowed) {
+            $this->addWhiteList('*.*.*.*');
+        } else {
+            $this->addBlackList('*.*.*.*');
         }
-
-        if (is_string($list)) {
-            $this->white_list[] = $list;
-        }
-
-        return $this;
     }
 
-    /**
-     * Дополняет черный список
-     *
-     * @param $list - массив строк или строка
-     * @return $this
-     */
-    public function addBlackList($list):FireWall
+    public function addWhiteList($list)
     {
-        if (is_array($list)) {
-            $this->black_list =\array_merge($this->black_list, $list);
-        }
-
-        if (is_string($list)) {
-            $this->black_list[] = $list;
-        }
-
-        return $this;
+        // можно вычислять мощность диапазона сразу при добавлении
+        // добавлять в sorted_range
+        // и сразу сортировать
+        // тогда validate() будет только искать
     }
 
-    /**
-     * @param callable $callback
-     * @return $this
-     */
-    public function setHandler(callable $callback):FireWall
-    {
-        $this->callback = $callback;
-        return $this;
-    }
+    public function addBlackList($list){}
 
-    /**
-     * Проверяет айпишник на вхождение в белый и черный списки
-     * Если передан аргумент null - вызывается внутренняя функция getIP для
-     * получения текущего IP.
-     *
-     * ВАЖНО: возвращает не результат проверки, а инстанс. Результат проверки
-     * записывается в поля инстанса.
-     *
-     * @param $ip
-     * @return $this
-     */
-    public function validate($ip = null):FireWall
+    public function validate($ip = null)
     {
         if (is_null($ip)) {
             $ip = $this->getIP();
@@ -143,123 +52,145 @@ class FireWall
             }
         }
 
-        $in_black = true;
-        $in_white = false;
+        // теперь нам нужно отсортировать списки (если это еще не сделано)
+        $this->sortRanges();
 
-        foreach ($this->white_list as $block) {
-            if ($this->isInRange($ip, $block)) {
-                $in_white = true; // IP находится в белом списке
-            }
+        // потом найти диапазон
+        $found_range_definition = $this->findShortedRange($ip);
+
+        if (empty($found_range_definition)) {
+            // диапазон не найден, то есть айпишник регулируется правилом по-умолчанию для списка '*.*.*.*.'
+            $this->allowed = $this->default_state;
+        } else {
+            $this->allowed = $found_range_definition['type'] === 'white';
+            $this->forbidden = !$this->allowed;
         }
-
-        foreach ($this->black_list as $block) {
-            if ($this->isInRange($ip, $block)) {
-                $in_black = false; // IP находится в черном списке
-            }
-        }
-
-
-        $this->allowed = !$in_black || $in_white;
-        $this->forbidden = $this->allowed;
-
-        /*$this->allowed = $this->isInList($ip, $this->white_list);
-        $this->forbidden = $this->isInList($ip, $this->black_list);*/
 
         return $this;
     }
 
-    /**
-     * Handle current request with callback handler
-     * @TODO: тесты
-     *
-     * @param $ip
-     * @return bool
-     */
-    public function handle($ip = null):bool
-    {
-        if (is_null($ip)) {
-            $ip = $this->getIP();
-
-            // всё еще может быть ошибка получения IP, значит он невалиден
-            if (is_null($ip)) {
-                return false;
-            }
-        }
-
-        $this->validate($ip);
-
-        $isAllowed = $this->check();
-
-        return  is_null($this->callback)
-            ? $isAllowed
-            : call_user_func($this->callback, array($this, $isAllowed));
-    }
-
-    /**
-     * Находится ли айпишник в списке разрешенных?
-     * Отдает результат валидации
-     *
-     * @return bool
-     */
     public function isAllowed():bool
     {
-        // return !$this->forbidden && $this->allowed;
         return $this->allowed;
     }
 
-    /**
-     * Находится ли айпишник в списке запрещенных?
-     * Отдает результат валидации
-     *
-     * @return bool
-     */
     public function isForbidden():bool
     {
-        // return !$this->isAllowed();
         return $this->forbidden;
     }
 
     /**
-     * Где находится айпишник (не тестировано) - используется с HANDLE
-     * @todo: ТЕСТЫ
+     * Сортирует диапазоны перед поиском
      *
-     * @return bool
+     * @return void
      */
-    public function check():bool
+    private function sortRanges(): void
     {
-        return $this->default_state ? (!$this->forbidden || $this->allowed) : ($this->allowed && !$this->forbidden);
-    }
-
-    /**
-     * Находится ли IP хоть в одном из диапазонов в списке?
-     *
-     * @param string $ip
-     * @param array $list
-     * @return bool
-     */
-    private function isInList(string $ip, array $list):bool
-    {
-        $is = false;
-        foreach ($list as $range) {
-            $is = $is || $this->isInRange($ip, $range);
+        foreach ($this->white_list as $range) {
+            $this->sorted_ranges[] = [
+                'range'     =>  $range,
+                'type'      =>  'white',
+                'capacity'  =>  $this->getRangeCapacity($range)
+            ];
         }
 
-        return $is;
+        foreach ($this->black_list as $range) {
+            $this->sorted_ranges[] = [
+                'range'     =>  $range,
+                'type'      =>  'black',
+                'capacity'  =>  $this->getRangeCapacity($range)
+            ];
+        }
+
+        usort($this->sorted_ranges, function ($left, $right){
+            return $right['capacity'] - $left['capacity'];
+        });
     }
 
     /**
-     * @param string $ip
-     * @param string $range
-     * @return bool
+     * Вычисляет мощность диапазона адресов
+     *
+     * @param $range
+     * @return int
      */
-    private function isInRange(string $ip, string $range):bool
+    private function getRangeCapacity($range):int
     {
-        $ip = trim($ip);
+        if (empty($range)) {
+            return 0;
+        }
 
-        // Проверяем, является ли диапазон диапазоном адресов
+        if ($range === '*') {
+            return 4_294_967_296;
+        }
+
+        // Обработка CIDR-нотации
+        if (str_contains($range, '/')) {
+            list($ip, $prefix) = explode('/', $range);
+            return (int)pow(2, 32 - (int)$prefix);
+        }
+
+        // Обработка диапазона '192.168.1.20-192.168.1.40'
         if (str_contains($range, '-')) {
             list($start, $end) = explode('-', $range);
-            return ip2long($ip) >= ip2long(trim($start)) && ip2long($ip) <= ip2long(trim($end));
+            return (int)ip2long($end) - (int)ip2long($start) + 1;
+        }
+
+        // Одиночный айпишник или строка с маской *
+        return match (substr_count('*', $range)) {
+            4   =>  4_294_967_296,
+            3   =>  16_777_216,
+            2   =>  65_636,
+            1   =>  256,
+            // маски нет, одиночный айпишник
+            default =>  1
+        };
+    }
+
+    /**
+     * Ищет кратчайший диапазон, содержащий указанный айпишник
+     *
+     * @param $ip
+     * @return array
+     */
+    private function findShortedRange($ip):array
+    {
+        $min_range = [];
+        foreach ($this->sorted_ranges as $range_rule) {
+            if ($this->isIpInRange($ip, $range_rule)) {
+                $min_range = $range_rule;
+            }
+        }
+        return $min_range; // Если диапазон не найден
+    }
+
+    /**
+     * Определяет наличие айпишника в диапазоне
+     *
+     * @param $ip
+     * @param $range_rule
+     * @return bool
+     */
+    private function isIpInRange($ip, $range_rule): bool
+    {
+        $range = $range_rule['range'];
+
+        if ($ip === $range) {
+            return true;
+        }
+
+        // Проверка формата CIDR
+        if (str_contains($range, '/')) {
+            list($subnet, $mask) = explode('/', $range);
+            $subnetLong = $this->ipToLong($subnet);
+            $ipLong = $this->ipToLong($ip);
+            $maskLong = ~((1 << (32 - $mask)) - 1);
+            return ($ipLong & $maskLong) === ($subnetLong & $maskLong);
+        }
+
+        // Проверка диапазона
+        if (str_contains($range, '-')) {
+            list($start, $end) = explode('-', $range);
+            return $this->ipToLong($ip) >= $this->ipToLong($start) && $this->ipToLong($ip) <= $this->ipToLong($end);
         }
 
         // Проверяем, является ли диапазон wildcard
@@ -267,26 +198,24 @@ class FireWall
             $range = trim($range);
             $range_0 = str_replace('*', '0', $range);
             $range_255 = str_replace('*', '255', $range);
-            return ip2long($ip) >= ip2long($range_0) && ip2long($ip) <= ip2long($range_255);
+            return $this->ipToLong($ip) >= $this->ipToLong($range_0) && $this->ipToLong($ip) <= $this->ipToLong($range_255);
         }
 
-        // Проверяем, является ли диапазон CIDR
-        if (str_contains($range, '/')) {
-            list($subnet, $mask) = explode('/', $range);
-            $subnet = ip2long($subnet);
-            $mask = ~((1 << (32 - (int)$mask)) - 1);
-            return (ip2long($ip) & $mask) === ($subnet & $mask);
-        }
-
-        // Простой IP
-        return \ip2long($ip) === \ip2long($range);
+        return false;
     }
 
     /**
-     * Отдает IP
+     * Превращает signed int IP в беззнаковое число
+     * (скорее всего не нужно для операций сравнения)
      *
-     * @return string|null
+     * @param $ip
+     * @return string
      */
+    private function ipToLong($ip): string
+    {
+        return sprintf('%u', ip2long($ip));
+    }
+
     public function getIP(): ?string
     {
         if (PHP_SAPI === 'cli') {

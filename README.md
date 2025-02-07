@@ -13,7 +13,7 @@ Library providing IP filtering features
 #### Basic usage
 
 ```php
-use Arris\Toolkit\Firewall;
+use Arris\Toolkit\FW;
 
 $whiteList = [
     '127.0.0.1',
@@ -24,7 +24,7 @@ $blackList = [
     '192.168.0.50',
 ];
 
-$firewall = new Firewall();
+$firewall = new FW();
 
 $connAllowed = $firewall
     ->setDefaultState(false)
