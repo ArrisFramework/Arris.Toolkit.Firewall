@@ -13,35 +13,97 @@ class FireWall
     public bool $forbidden = true;
     public bool $default_state = false;
 
-    public function __construct($defaultState = false)
+    /**
+     * @param bool|null $defaultState
+     */
+    public function __construct(?bool $defaultState = null)
+    {
+        $this->reset($defaultState);
+    }
+
+    /**
+     * Резет правил
+     *
+     * @param bool|null $defaultState
+     * @return FireWall
+     */
+    public function reset(?bool $defaultState = null):FireWall
     {
         $this->white_list = [];
         $this->black_list = [];
+
+        if (!is_null($defaultState)) {
+            $this->setDefaultState((bool)$defaultState);
+        }
+
+        return $this;
     }
 
-    public function reset():FireWall
-    {}
-
-    public function setDefaultState(bool $allowed = false)
+    /**
+     * Состояние по-умолчанию для диапазона *
+     *
+     * @param bool $allowed
+     * @return $this
+     */
+    public function setDefaultState(bool $allowed = false):FireWall
     {
         if ($allowed) {
             $this->addWhiteList('*.*.*.*');
         } else {
             $this->addBlackList('*.*.*.*');
         }
+        return $this;
     }
 
-    public function addWhiteList($list)
+    /**
+     * Добавляем диапазон в белый список
+     *
+     * @param $list
+     * @return $this
+     */
+    public function addWhiteList($list):FireWall
     {
         // можно вычислять мощность диапазона сразу при добавлении
         // добавлять в sorted_range
         // и сразу сортировать
         // тогда validate() будет только искать
+        if (is_array($list)) {
+            $this->white_list = array_merge($this->white_list, $list);
+        }
+
+        if (is_string($list)) {
+            $this->white_list[] = $list;
+        }
+
+        return $this;
     }
 
-    public function addBlackList($list){}
+    /**
+     * Добавляем диапазон в черный список
+     *
+     * @param $list
+     * @return $this
+     */
+    public function addBlackList($list):FireWall
+    {
+        if (is_array($list)) {
+            $this->black_list =\array_merge($this->black_list, $list);
+        }
 
-    public function validate($ip = null)
+        if (is_string($list)) {
+            $this->black_list[] = $list;
+        }
+
+        return $this;
+    }
+
+    /**
+     * Тестируем айпишник
+     *
+     * @param $ip
+     * @return $this
+     */
+    public function validate($ip = null):FireWall
     {
         if (is_null($ip)) {
             $ip = $this->getIP();
@@ -69,11 +131,21 @@ class FireWall
         return $this;
     }
 
+    /**
+     * Проверяем, в белом списке ли тестирумый айпишник?
+     *
+     * @return bool
+     */
     public function isAllowed():bool
     {
         return $this->allowed;
     }
 
+    /**
+     * Проверяем, в черном списке ли тестирумый айпишник?
+     *
+     * @return bool
+     */
     public function isForbidden():bool
     {
         return $this->forbidden;
@@ -102,8 +174,8 @@ class FireWall
             ];
         }
 
-        usort($this->sorted_ranges, function ($left, $right){
-            return $right['capacity'] - $left['capacity'];
+        usort($this->sorted_ranges, function ($a, $b){
+            return $b['capacity'] - $a['capacity'];
         });
     }
 
@@ -136,7 +208,7 @@ class FireWall
         }
 
         // Одиночный айпишник или строка с маской *
-        return match (substr_count('*', $range)) {
+        return match (substr_count($range, '*')) {
             4   =>  4_294_967_296,
             3   =>  16_777_216,
             2   =>  65_636,
@@ -147,7 +219,7 @@ class FireWall
     }
 
     /**
-     * Ищет кратчайший диапазон, содержащий указанный айпишник
+     * Ищем кратчайший диапазон, содержащий айпишник
      *
      * @param $ip
      * @return array
@@ -164,7 +236,7 @@ class FireWall
     }
 
     /**
-     * Определяет наличие айпишника в диапазоне
+     * Определяем наличие айпишника в диапазоне
      *
      * @param $ip
      * @param $range_rule
@@ -205,7 +277,7 @@ class FireWall
     }
 
     /**
-     * Превращает signed int IP в беззнаковое число
+     * Превращаем signed int IP в беззнаковое число
      * (скорее всего не нужно для операций сравнения)
      *
      * @param $ip
