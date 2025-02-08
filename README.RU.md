@@ -1,7 +1,5 @@
 # Arris.Toolkit.Firewall
 
-
-
 Библиотека, предоставляющая функции фильтрации IP-адресов
 
 | Type        | Syntax                      | Details                                                                                                                       |
@@ -13,6 +11,11 @@
 | CIDR Mask   | `192.168.0.0/24`            | IPs starting with `192.168.0`<br />Same as `192.168.0.0-192.168.0.255` and `192.168.0.*`<br />and `192.168.0.0/255.255.255.0` |
 
 ## Basic usage
+
+Подключаем через композер:
+```
+composer require karelwintersky/arris.toolkit.firewall
+```
 
 ```php
 use Arris\Toolkit\FireWall;

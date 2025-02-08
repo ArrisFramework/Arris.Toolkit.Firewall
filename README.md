@@ -12,6 +12,12 @@ Library providing IP filtering features
 
 ## Basic usage
 
+Use composer: 
+```
+composer require karelwintersky/arris.toolkit.firewall
+```
+
+
 ```php
 use Arris\Toolkit\FireWall;
 
