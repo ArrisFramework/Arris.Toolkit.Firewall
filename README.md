@@ -1,5 +1,7 @@
 # Arris.Toolkit.Firewall
 
+Readme in Russian - [README.RU.md](README.RU.md)
+
 Library providing IP filtering features
 
 | Type        | Syntax                      | Details                                                                                                                       |
