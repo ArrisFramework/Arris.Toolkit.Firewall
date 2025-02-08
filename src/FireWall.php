@@ -2,56 +2,82 @@
 
 namespace Arris\Toolkit;
 
+use Arris\Toolkit\FireWall\FireWallState;
+
 class FireWall
 {
-    private array $white_list;
-    private array $black_list;
+    private array $allowed_list;
+    private array $forbidden_list;
 
-    private array $sorted_ranges;
+    private array $united_list;
 
     public bool $allowed = false;
     public bool $forbidden = true;
     public bool $default_state = false;
 
     /**
-     * @param bool|null $defaultState
+     * Когда сортировать диапазоны айпишников:
+     * TRUE - на этапе validate (сортирует диапазоны каждый раз при проверке, имеет смысл, если тестируем айпишник 1 раз)
+     * FALSE - на этапе добавления (имеет смысл, если мы тестируем несколько айпишников по одному набору правил)
+     * @var bool
      */
-    public function __construct(?bool $defaultState = null)
+    private bool $deferred_range_sorting;
+
+    /**
+     * @param bool|FireWallState|null $defaultState
+     * @param bool $deferred_range_sorting
+     */
+    public function __construct(FireWallState|bool $defaultState = null, bool $deferred_range_sorting = true)
     {
+        $this->deferred_range_sorting = $deferred_range_sorting;
         $this->reset($defaultState);
     }
 
     /**
-     * Резет правил
+     * Резет правил (используется в тестах)
      *
-     * @param bool|null $defaultState
+     * @param FireWallState|bool|null $defaultState
      * @return FireWall
      */
-    public function reset(?bool $defaultState = null):FireWall
+    public function reset($defaultState = null):FireWall
     {
-        $this->white_list = [];
-        $this->black_list = [];
+        $this->allowed_list = [];
+        $this->forbidden_list = [];
+        $this->united_list = [];
 
-        if (!is_null($defaultState)) {
-            $this->setDefaultState((bool)$defaultState);
-        }
+        $this->setDefaultState($defaultState);
 
         return $this;
     }
 
     /**
-     * Состояние по-умолчанию для диапазона *
+     * Состояние по-умолчанию для диапазона `*.*.*.*`
      *
-     * @param bool $allowed
+     * @param FireWallState|bool|null $state
      * @return $this
      */
-    public function setDefaultState(bool $allowed = false):FireWall
+    public function setDefaultState($state):FireWall
     {
-        if ($allowed) {
-            $this->addWhiteList('*.*.*.*');
-        } else {
-            $this->addBlackList('*.*.*.*');
+        if (is_null($state)) {
+            $state = FireWallState::FORBIDDEN;
         }
+
+        if (is_bool($state)) {
+            $state = FireWallState::toEnum($state);
+        }
+
+        // if ($state instanceof FireWallState) { /* в остальном случае $state - инстанс FireWallState */}
+
+        if ($state == FireWallState::ALLOWED) {
+            $this->allowed = true;
+            $this->addWhiteList('*.*.*.*');
+            $this->default_state = true;
+        } else {
+            $this->allowed = false;
+            $this->addBlackList('*.*.*.*');
+            $this->default_state = false;
+        }
+
         return $this;
     }
 
@@ -63,16 +89,13 @@ class FireWall
      */
     public function addWhiteList($list):FireWall
     {
-        // можно вычислять мощность диапазона сразу при добавлении
-        // добавлять в sorted_range
-        // и сразу сортировать
-        // тогда validate() будет только искать
         if (is_array($list)) {
-            $this->white_list = array_merge($this->white_list, $list);
+            foreach ($list as $l) {
+                $this->addRange($l, FireWallState::ALLOWED);
+            }
         }
-
         if (is_string($list)) {
-            $this->white_list[] = $list;
+            $this->addRange($list, FireWallState::ALLOWED);
         }
 
         return $this;
@@ -87,11 +110,49 @@ class FireWall
     public function addBlackList($list):FireWall
     {
         if (is_array($list)) {
-            $this->black_list =\array_merge($this->black_list, $list);
+            foreach ($list as $l) {
+                $this->addRange($l, FireWallState::FORBIDDEN);
+            }
+        }
+        if (is_string($list)) {
+            $this->addRange($list, FireWallState::FORBIDDEN);
         }
 
-        if (is_string($list)) {
-            $this->black_list[] = $list;
+        return $this;
+    }
+
+    /**
+     * Добавляем диапазон в конкретный список
+     *
+     * @param $range
+     * @param FireWallState $type
+     * @return $this
+     */
+    public function addRange($range, FireWallState $type):FireWall
+    {
+        if (is_array($range)) {
+            foreach ($range as $r) {
+                $this->addRange($r, $type);
+            }
+            return $this;
+        }
+
+        $this->united_list[] = [
+            'range'     =>  $range,
+            'type'      =>  $type,
+            'capacity'  =>  $this->getRangeCapacity($range)
+        ];
+
+        if ($type == FireWallState::ALLOWED) {
+            $this->allowed_list[] = $range;
+        } else {
+            $this->forbidden_list[] = $range;
+        }
+
+        if (!$this->deferred_range_sorting) {
+            usort($this->united_list, function ($left, $right){
+                return $right['capacity'] - $left['capacity'];
+            });
         }
 
         return $this;
@@ -114,8 +175,14 @@ class FireWall
             }
         }
 
-        // теперь нам нужно отсортировать списки (если это еще не сделано)
-        $this->sortRanges();
+        // Если используется отложенная сортировка списков - сортируем их сейчас
+        if ($this->deferred_range_sorting) {
+            // $this->sortRanges();
+
+            usort($this->united_list, function ($a, $b){
+                return $b['capacity'] - $a['capacity'];
+            });
+        }
 
         // потом найти диапазон
         $found_range_definition = $this->findShortedRange($ip);
@@ -124,7 +191,7 @@ class FireWall
             // диапазон не найден, то есть айпишник регулируется правилом по-умолчанию для списка '*.*.*.*.'
             $this->allowed = $this->default_state;
         } else {
-            $this->allowed = $found_range_definition['type'] === 'white';
+            $this->allowed = $found_range_definition['type'] === FireWallState::ALLOWED;
             $this->forbidden = !$this->allowed;
         }
 
@@ -158,7 +225,7 @@ class FireWall
      */
     private function sortRanges(): void
     {
-        foreach ($this->white_list as $range) {
+        /*foreach ($this->white_list as $range) {
             $this->sorted_ranges[] = [
                 'range'     =>  $range,
                 'type'      =>  'white',
@@ -172,9 +239,9 @@ class FireWall
                 'type'      =>  'black',
                 'capacity'  =>  $this->getRangeCapacity($range)
             ];
-        }
+        }*/
 
-        usort($this->sorted_ranges, function ($a, $b){
+        usort($this->united_list, function ($a, $b){
             return $b['capacity'] - $a['capacity'];
         });
     }
@@ -227,7 +294,7 @@ class FireWall
     private function findShortedRange($ip):array
     {
         $min_range = [];
-        foreach ($this->sorted_ranges as $range_rule) {
+        foreach ($this->united_list as $range_rule) {
             if ($this->isIpInRange($ip, $range_rule)) {
                 $min_range = $range_rule;
             }

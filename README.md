@@ -2,8 +2,6 @@
 
 Library providing IP filtering features
 
-Библиотека, предоставляющая функции фильтрации IP-адресов
-
 | Type        | Syntax                      | Details                                                                                                                       |
 |-------------|-----------------------------|-------------------------------------------------------------------------------------------------------------------------------|
 | IPV4        | `192.168.0.1`               |                                                                                                                               |
@@ -12,7 +10,7 @@ Library providing IP filtering features
 | Subnet mask | `192.168.0.0/255.255.255.0` | (НЕ ПОДДЕРЖИВАЕТСЯ) IPs starting with `192.168.0`<br />Same as `192.168.0.0-192.168.0.255` and `192.168.0.*`                  |
 | CIDR Mask   | `192.168.0.0/24`            | IPs starting with `192.168.0`<br />Same as `192.168.0.0-192.168.0.255` and `192.168.0.*`<br />and `192.168.0.0/255.255.255.0` |
 
-#### Basic usage
+## Basic usage
 
 ```php
 use Arris\Toolkit\FireWall;
@@ -26,7 +24,10 @@ $blackList = [
     '192.168.0.50',
 ];
 
-$firewall = new FireWall();
+$firewall = new FireWall(
+    defaultState: false,
+    deferred_range_sorting: true 
+);
 
 $connAllowed = $firewall
     ->setDefaultState(false)
@@ -41,8 +42,40 @@ if (!$connAllowed) {
     exit();
 }
 ```
+#### Constructor
 
-#### Пример сложный (и искусственный)
+```php
+$firewall = new FireWall(
+    defaultState: false,
+    deferred_range_sorting: true 
+);
+```
+
+- `defaultState` - rule for range `*.*.*.*`. Default **false**, i.e. **FORBIDDEN**. Allowed options:
+  - `null` (equal to false)
+  - `true|false`
+  - `\Arris\Toolkit\FireWall\FireWallState::FORBIDDEN` или `Arris\Toolkit\FireWall\FireWallState::ALLOWED`
+- `deferred_range_sorting` - use lazy range sorting:
+  - `true`: at validate() call; use it if you test only one IP at once, most cases)
+  - `false`: at addAnyList() call; use it if you test a lot if IPs with one ruleset
+
+#### Add ranges
+
+- `addWhiteList()` - add range to White list (Allowed), alias of `addAllowedList()` 
+- `addBlackList()` - add range to Black List (Forbidden), alias of `addForbiddenList()`
+
+Argument is string or array of strings
+
+- `192.168.0.1` - alone IP
+- `192.168.0.0-192.168.1.60` - range
+- `192.168.0.*` - wildcard range (allowed range `*`, that is equal to `*.*.*.*`)
+- `192.168.0.0/24` - CIDR range
+
+Range `192.168.0.0/255.255.255.0` not supported now.
+
+- `addRange(range, type)` - type is FireWallState enum value
+
+## Сomplex and redundant example
 
 ```php
 $firewall = new FireWall();
@@ -68,14 +101,20 @@ $equals = [
 ];
 ```
 
-## Как это работает?
+## Nuances
 
-- Задаем диапазоны айпишников (белые и черные)
-- Принадлежность полного диапазона (`*.*.*.*`) к black/white листу зависит от настроек 
-- Вычисляются мощности диапазонов
-- Диапазоны сортируются по мощности
-- Ищется кратчайший диапазон, в который входит тестируемый айпишник
-- Смотрим тип этого диапазона - black или white
+- when ranges overlap, the one with the lower power is "stronger"
+- when ranges of equal power overlap, the result is not defined (most likely, the one that was declared earlier will be used)
+
+## How does it work?
+
+- We set IP ranges (white and black)
+- Whether the full range (`*.*.*.*`) belongs to the black/white list depends on the settings
+- Range powers are calculated
+- Ranges are sorted by power
+- The shortest range is found that includes the tested IP
+- The type of this range is the state for the IP - ALLOWED or FORBIDDEN
+
 
 ## License
 
