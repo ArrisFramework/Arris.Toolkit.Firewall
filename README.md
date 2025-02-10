@@ -9,8 +9,9 @@ Library providing IP filtering features
 | IPV4        | `192.168.0.1`               |                                                                                                                               |
 | Range       | `192.168.0.0-192.168.1.60`  | Includes all IPs from `192.168.0.0` to `192.168.0.255`<br />and from `192.168.1.0` to `198.168.1.60`                          |
 | Wild card   | `192.168.0.*`               | IPs starting with `192.168.0`<br />Same as IP Range `192.168.0.0-192.168.0.255`                                               |
-| Subnet mask | `192.168.0.0/255.255.255.0` | (НЕ ПОДДЕРЖИВАЕТСЯ) IPs starting with `192.168.0`<br />Same as `192.168.0.0-192.168.0.255` and `192.168.0.*`                  |
 | CIDR Mask   | `192.168.0.0/24`            | IPs starting with `192.168.0`<br />Same as `192.168.0.0-192.168.0.255` and `192.168.0.*`<br />and `192.168.0.0/255.255.255.0` |
+
+*NB!* Range like `192.168.0.0/255.255.255.0` with subnet mask not supported (as deprecated)!
 
 ## Basic usage
 
@@ -38,7 +39,6 @@ $firewall = new FireWall(
 );
 
 $connAllowed = $firewall
-    ->setDefaultState(false)
     ->addWhiteList($whiteList)
     ->addBlackList($blackList)
     ->validate('195.88.195.146')
@@ -62,15 +62,15 @@ $firewall = new FireWall(
 - `defaultState` - rule for range `*.*.*.*`. Default **false**, i.e. **FORBIDDEN**. Allowed options:
   - `null` (equal to false)
   - `true|false`
-  - `\Arris\Toolkit\FireWall\FireWallState::FORBIDDEN` или `Arris\Toolkit\FireWall\FireWallState::ALLOWED`
+  - `FireWallState::FORBIDDEN` или `FireWallState::ALLOWED`
 - `deferred_range_sorting` - use lazy range sorting:
   - `true`: at validate() call; use it if you test only one IP at once, most cases)
   - `false`: at addAnyList() call; use it if you test a lot if IPs with one ruleset
 
 #### Add ranges
 
-- `addWhiteList()` - add range to White list (Allowed), alias of `addAllowedList()` 
-- `addBlackList()` - add range to Black List (Forbidden), alias of `addForbiddenList()`
+- `addWhiteList()` - add range to White list (Allowed), alias of `addAllowed()` 
+- `addBlackList()` - add range to Black List (Forbidden), alias of `addDenied()`
 
 Argument is string or array of strings
 

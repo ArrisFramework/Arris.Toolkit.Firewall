@@ -4,7 +4,7 @@ namespace Arris\Toolkit;
 
 use Arris\Toolkit\FireWall\FireWallState;
 
-class FireWall
+class FireWall implements FireWallInterface
 {
     private array $allowed_list;
     private array $forbidden_list;
@@ -23,10 +23,6 @@ class FireWall
      */
     private bool $deferred_range_sorting;
 
-    /**
-     * @param bool|FireWallState|null $defaultState
-     * @param bool $deferred_range_sorting
-     */
     public function __construct(FireWallState|bool $defaultState = null, bool $deferred_range_sorting = true)
     {
         $this->deferred_range_sorting = $deferred_range_sorting;
@@ -36,10 +32,10 @@ class FireWall
     /**
      * Резет правил (используется в тестах)
      *
-     * @param FireWallState|bool|null $defaultState
+     * @param bool|FireWallState|null $defaultState
      * @return FireWall
      */
-    public function reset($defaultState = null):FireWall
+    public function reset(FireWallState|bool $defaultState = null):FireWall
     {
         $this->allowed_list = [];
         $this->forbidden_list = [];
@@ -50,12 +46,6 @@ class FireWall
         return $this;
     }
 
-    /**
-     * Состояние по-умолчанию для диапазона `*.*.*.*`
-     *
-     * @param FireWallState|bool|null $state
-     * @return $this
-     */
     public function setDefaultState($state):FireWall
     {
         if (is_null($state)) {
@@ -81,12 +71,7 @@ class FireWall
         return $this;
     }
 
-    /**
-     * Добавляем диапазон в белый список
-     *
-     * @param $list
-     * @return $this
-     */
+
     public function addWhiteList($list):FireWall
     {
         if (is_array($list)) {
@@ -101,12 +86,11 @@ class FireWall
         return $this;
     }
 
-    /**
-     * Добавляем диапазон в черный список
-     *
-     * @param $list
-     * @return $this
-     */
+    public function addAllowed($list):FireWall
+    {
+        return $this->addWhiteList($list);
+    }
+
     public function addBlackList($list):FireWall
     {
         if (is_array($list)) {
@@ -121,13 +105,11 @@ class FireWall
         return $this;
     }
 
-    /**
-     * Добавляем диапазон в конкретный список
-     *
-     * @param $range
-     * @param FireWallState $type
-     * @return $this
-     */
+    public function addDenied($list):FireWall
+    {
+        return $this->addBlackList($list);
+    }
+
     public function addRange($range, FireWallState $type):FireWall
     {
         if (is_array($range)) {
@@ -150,38 +132,32 @@ class FireWall
         }
 
         if (!$this->deferred_range_sorting) {
-            usort($this->united_list, function ($left, $right){
-                return $right['capacity'] - $left['capacity'];
-            });
+            $this->sortRanges();
         }
 
         return $this;
     }
 
-    /**
-     * Тестируем айпишник
-     *
-     * @param $ip
-     * @return $this
-     */
+    public function getRanges():array
+    {
+        $this->sortRanges();
+        return $this->united_list;
+    }
+
     public function validate($ip = null):FireWall
     {
         if (is_null($ip)) {
             $ip = $this->getIP();
 
             // всё еще может быть ошибка получения IP, значит он невалиден
-            if (is_null($ip)) {
+            if (empty($ip)) {
                 return $this;
             }
         }
 
         // Если используется отложенная сортировка списков - сортируем их сейчас
         if ($this->deferred_range_sorting) {
-            // $this->sortRanges();
-
-            usort($this->united_list, function ($a, $b){
-                return $b['capacity'] - $a['capacity'];
-            });
+            $this->sortRanges();
         }
 
         // потом найти диапазон
@@ -198,21 +174,11 @@ class FireWall
         return $this;
     }
 
-    /**
-     * Проверяем, в белом списке ли тестирумый айпишник?
-     *
-     * @return bool
-     */
     public function isAllowed():bool
     {
         return $this->allowed;
     }
 
-    /**
-     * Проверяем, в черном списке ли тестирумый айпишник?
-     *
-     * @return bool
-     */
     public function isForbidden():bool
     {
         return $this->forbidden;
@@ -221,28 +187,12 @@ class FireWall
     /**
      * Сортирует диапазоны перед поиском
      *
-     * @return void
+     * @return bool
      */
-    private function sortRanges(): void
+    private function sortRanges():bool
     {
-        /*foreach ($this->white_list as $range) {
-            $this->sorted_ranges[] = [
-                'range'     =>  $range,
-                'type'      =>  'white',
-                'capacity'  =>  $this->getRangeCapacity($range)
-            ];
-        }
-
-        foreach ($this->black_list as $range) {
-            $this->sorted_ranges[] = [
-                'range'     =>  $range,
-                'type'      =>  'black',
-                'capacity'  =>  $this->getRangeCapacity($range)
-            ];
-        }*/
-
-        usort($this->united_list, function ($a, $b){
-            return $b['capacity'] - $a['capacity'];
+        return usort($this->united_list, function ($left, $right){
+            return $right['capacity'] - $left['capacity'];
         });
     }
 
@@ -258,7 +208,7 @@ class FireWall
             return 0;
         }
 
-        if ($range === '*') {
+        if ($range === '*' || $range === '0.0.0.0/0') {
             return 4_294_967_296;
         }
 
@@ -355,14 +305,14 @@ class FireWall
         return sprintf('%u', ip2long($ip));
     }
 
-    public function getIP(): ?string
+    public function getIP(): string
     {
         if (PHP_SAPI === 'cli') {
             return '127.0.0.1';
         }
 
         if (!isset ($_SERVER['REMOTE_ADDR'])) {
-            return null;
+            return '';
         }
 
         if (\array_key_exists("HTTP_X_FORWARDED_FOR", $_SERVER)) {
@@ -373,7 +323,9 @@ class FireWall
             }
         }
 
-        return \filter_var($_SERVER['REMOTE_ADDR'], FILTER_VALIDATE_IP) ? $_SERVER['REMOTE_ADDR'] : null;
+        return \filter_var($_SERVER['REMOTE_ADDR'], FILTER_VALIDATE_IP) ? $_SERVER['REMOTE_ADDR'] : '';
     }
 
 }
+
+#-eof-
